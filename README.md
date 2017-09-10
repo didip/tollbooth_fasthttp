@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/didip/tollbooth"
-	"github.com/magicwrighter/tollbooth/thirdparty/tollbooth_fasthttp"
+	"github.com/didip/tollbooth_fasthttp"
 	"github.com/valyala/fasthttp"
 )
 
