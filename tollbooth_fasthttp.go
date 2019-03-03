@@ -2,20 +2,19 @@ package tollbooth_fasthttp
 
 import (
 	"encoding/base64"
-	"strings"
-
 	"github.com/didip/tollbooth"
-	"github.com/didip/tollbooth/config"
 	"github.com/didip/tollbooth/errors"
+	"github.com/didip/tollbooth/limiter"
 	"github.com/valyala/fasthttp"
+	"strings"
 )
 
-func LimitHandler(handler fasthttp.RequestHandler, limiter *config.Limiter) fasthttp.RequestHandler {
+func LimitHandler(handler fasthttp.RequestHandler, limiter *limiter.Limiter) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		httpError := LimitByRequest(limiter, ctx)
 
 		if httpError != nil {
-			ctx.Response.Header.Set("Content-Type", limiter.MessageContentType)
+			ctx.Response.Header.Set("Content-Type", limiter.GetMessageContentType())
 			ctx.SetStatusCode(httpError.StatusCode)
 			ctx.SetBody([]byte(httpError.Message))
 			return
@@ -25,7 +24,7 @@ func LimitHandler(handler fasthttp.RequestHandler, limiter *config.Limiter) fast
 	}
 }
 
-func LimitByRequest(limiter *config.Limiter, ctx *fasthttp.RequestCtx) *errors.HTTPError {
+func LimitByRequest(limiter *limiter.Limiter, ctx *fasthttp.RequestCtx) *errors.HTTPError {
 	sliceKeys := BuildKeys(limiter, ctx)
 
 	//Loop sliceKeys and check if one of them has an error.
@@ -84,8 +83,8 @@ func RemoteIP(ipLookups []string, ctx *fasthttp.RequestCtx) string {
 }
 
 // BuildKeys generates a slice of keys to rate-limit by given config and request structs.
-func BuildKeys(limiter *config.Limiter, ctx *fasthttp.RequestCtx) [][]string {
-	remoteIP := RemoteIP(limiter.IPLookups, ctx)
+func BuildKeys(limiter *limiter.Limiter, ctx *fasthttp.RequestCtx) [][]string {
+	remoteIP := RemoteIP(limiter.GetIPLookups(), ctx)
 	path := string(ctx.Path())
 	reqMethod := string(ctx.Method())
 	sliceKeys := make([][]string, 0)
@@ -95,15 +94,15 @@ func BuildKeys(limiter *config.Limiter, ctx *fasthttp.RequestCtx) [][]string {
 		return sliceKeys
 	}
 
-	if limiter.Methods != nil && limiter.Headers != nil && limiter.BasicAuthUsers != nil {
+	if limiter.GetMethods() != nil && limiter.GetHeaders() != nil && limiter.GetBasicAuthUsers() != nil {
 		// Limit by HTTP methods and HTTP headers+values and Basic Auth credentials.
-		if StringInSlice(limiter.Methods, reqMethod) {
-			for headerKey, headerValues := range limiter.Headers {
+		if StringInSlice(limiter.GetMethods(), reqMethod) {
+			for headerKey, headerValues := range limiter.GetHeaders() {
 				headerLen := len(ctx.Request.Header.Peek(headerKey))
 				if (headerValues == nil || len(headerValues) <= 0) && headerLen != 0 {
 					// If header values are empty, rate-limit all request with headerKey.
 					username, _, ok := parseBasicAuth(string(ctx.Request.Header.Peek("Authorization")))
-					if ok && StringInSlice(limiter.BasicAuthUsers, username) {
+					if ok && StringInSlice(limiter.GetBasicAuthUsers(), username) {
 						sliceKeys = append(sliceKeys, []string{remoteIP, path, reqMethod, headerKey, username})
 					}
 
@@ -111,7 +110,7 @@ func BuildKeys(limiter *config.Limiter, ctx *fasthttp.RequestCtx) [][]string {
 					// If header values are not empty, rate-limit all request with headerKey and headerValues.
 					for _, headerValue := range headerValues {
 						username, _, ok := parseBasicAuth(string(ctx.Request.Header.Peek("Authorization")))
-						if ok && StringInSlice(limiter.BasicAuthUsers, username) {
+						if ok && StringInSlice(limiter.GetBasicAuthUsers(), username) {
 							sliceKeys = append(sliceKeys, []string{remoteIP, path, reqMethod, headerKey, headerValue, username})
 						}
 					}
@@ -119,10 +118,10 @@ func BuildKeys(limiter *config.Limiter, ctx *fasthttp.RequestCtx) [][]string {
 			}
 		}
 
-	} else if limiter.Methods != nil && limiter.Headers != nil {
+	} else if limiter.GetMethods() != nil && limiter.GetHeaders() != nil {
 		// Limit by HTTP methods and HTTP headers+values.
-		if StringInSlice(limiter.Methods, reqMethod) {
-			for headerKey, headerValues := range limiter.Headers {
+		if StringInSlice(limiter.GetMethods(), reqMethod) {
+			for headerKey, headerValues := range limiter.GetHeaders() {
 				headerLen := len(ctx.Request.Header.Peek(headerKey))
 				if (headerValues == nil || len(headerValues) <= 0) && headerLen != 0 {
 					// If header values are empty, rate-limit all request with headerKey.
@@ -137,24 +136,24 @@ func BuildKeys(limiter *config.Limiter, ctx *fasthttp.RequestCtx) [][]string {
 			}
 		}
 
-	} else if limiter.Methods != nil && limiter.BasicAuthUsers != nil {
+	} else if limiter.GetMethods() != nil && limiter.GetBasicAuthUsers() != nil {
 		// Limit by HTTP methods and Basic Auth credentials.
-		if StringInSlice(limiter.Methods, reqMethod) {
+		if StringInSlice(limiter.GetMethods(), reqMethod) {
 			username, _, ok := parseBasicAuth(string(ctx.Request.Header.Peek("Authorization")))
-			if ok && StringInSlice(limiter.BasicAuthUsers, username) {
+			if ok && StringInSlice(limiter.GetBasicAuthUsers(), username) {
 				sliceKeys = append(sliceKeys, []string{remoteIP, path, reqMethod, username})
 			}
 		}
 
-	} else if limiter.Methods != nil {
+	} else if limiter.GetMethods() != nil {
 		// Limit by HTTP methods.
-		if StringInSlice(limiter.Methods, reqMethod) {
+		if StringInSlice(limiter.GetMethods(), reqMethod) {
 			sliceKeys = append(sliceKeys, []string{remoteIP, path, reqMethod})
 		}
 
-	} else if limiter.Headers != nil {
+	} else if limiter.GetHeaders() != nil {
 		// Limit by HTTP headers+values.
-		for headerKey, headerValues := range limiter.Headers {
+		for headerKey, headerValues := range limiter.GetHeaders() {
 			headerLen := len(ctx.Request.Header.Peek(headerKey))
 			if (headerValues == nil || len(headerValues) <= 0) && headerLen != 0 {
 				// If header values are empty, rate-limit all request with headerKey.
@@ -168,10 +167,10 @@ func BuildKeys(limiter *config.Limiter, ctx *fasthttp.RequestCtx) [][]string {
 			}
 		}
 
-	} else if limiter.BasicAuthUsers != nil {
+	} else if limiter.GetBasicAuthUsers() != nil {
 		// Limit by Basic Auth credentials.
 		username, _, ok := parseBasicAuth(string(ctx.Request.Header.Peek("Authorization")))
-		if ok && StringInSlice(limiter.BasicAuthUsers, username) {
+		if ok && StringInSlice(limiter.GetBasicAuthUsers(), username) {
 			sliceKeys = append(sliceKeys, []string{remoteIP, path, username})
 		}
 	} else {
@@ -201,3 +200,4 @@ func parseBasicAuth(auth string) (string, string, bool) {
 
 	return cs[:s], cs[s+1:], true
 }
+
